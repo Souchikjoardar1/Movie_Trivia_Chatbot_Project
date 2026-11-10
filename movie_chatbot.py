@@ -13,7 +13,7 @@ import gradio as gr
 
 # ---- LangChain core + community imports ----
 from langchain_community.document_loaders.pdf import PyPDFLoader
-from langchain.text_splitter import CharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain.prompts import PromptTemplate
@@ -37,10 +37,6 @@ if os.getenv("LANGSMITH_API_KEY") and not os.getenv("LANGCHAIN_API_KEY"):
     os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGSMITH_API_KEY")
 if os.getenv("LANGSMITH_PROJECT") and not os.getenv("LANGCHAIN_PROJECT"):
     os.environ["LANGCHAIN_PROJECT"] = os.getenv("LANGSMITH_PROJECT")
-if os.getenv("LANGCHAIN_TRACING_V2") is None and (
-    os.getenv("LANGCHAIN_API_KEY") or os.getenv("LANGSMITH_API_KEY")
-):
-    os.environ["LANGCHAIN_TRACING_V2"] = "true"
 
 # --------------------- RAG Building Blocks ---------------------
 
@@ -51,7 +47,7 @@ def load_and_split_pdf(pdf_path: str):
         )
     loader = PyPDFLoader(pdf_path)
     docs = loader.load()
-    splitter = CharacterTextSplitter(chunk_size=150, chunk_overlap=20)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=150, chunk_overlap=20)
     chunks = splitter.split_documents(docs)
     return chunks
 
@@ -93,7 +89,6 @@ def build_qa_chain(vectorstore):
         chain_type="stuff",
         retriever=retriever,
         chain_type_kwargs={"prompt": prompt},
-        return_source_documents=True,
     )
     return qa
 
@@ -118,21 +113,18 @@ def format_history_for_prompt(history: InMemoryChatMessageHistory, max_turns: in
 
 def answer_query(qa: RetrievalQA, user_text: str, session_id: str):
     history = get_session(session_id)
-    chat_history_text = format_history_for_prompt(history)    
+    chat_history_text = format_history_for_prompt(history)
     combined_q = (
         f"Conversation history (may be empty):\n{chat_history_text}\n\n"
         f"User question: {user_text}"
     ).strip()
-    inputs = {"query": combined_q, "question": combined_q}
+    inputs = {"query": combined_q}
     result = qa.invoke(inputs)
 
     answer = result.get("result", "")
     history.add_user_message(user_text)
     history.add_ai_message(answer)
-
-    # REMOVE sources collection and return only answer
     return answer
-
 
 
 def clear_session(session_id: str):
@@ -154,11 +146,11 @@ def main():
 
     with gr.Blocks(title="MovieBot - Movie Trivia RAG") as demo:
         gr.Markdown(f"### {APP_GREETING}")
-        chatbot = gr.Chatbot(label="MovieBot", height=400)
-        txt = gr.Textbox(label="Ask about movies", placeholder="Who directed The Dark Knight?", lines=2)
+        chatbot = gr.Chatbot(label="MovieBot", type="messages", height=400)
+        txt = gr.Textbox(label="Ask about movies", placeholder="Who directed The Shawshank Redemption?", lines=2)
         submit = gr.Button("Submit", variant="primary")
         clear = gr.Button("Clear History")
-        session_state = gr.State(str(uuid.uuid4()))
+        session_state = gr.State(lambda: str(uuid.uuid4()), delete_callback=clear_session)
 
         def respond(user_input, chat_history, session_id):
             if not user_input or not user_input.strip():
@@ -171,8 +163,6 @@ def main():
             return chat_history, ""
 
 
-
-
         def clear_all(session_id):
             clear_session(session_id)
             return [], str(uuid.uuid4())
@@ -181,7 +171,6 @@ def main():
         clear.click(clear_all, inputs=[session_state], outputs=[chatbot, session_state])
 
     demo.queue().launch()
-
 
 
 if __name__ == "__main__":
