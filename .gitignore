@@ -1,5 +1,21 @@
+# Local settings
 .env
-.env.local
-*.pyc
+.env.*
+!.env.example
+
+# Python environments and caches
+.venv/
+venv/
 __pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Generated application data
+.chroma/
+.gradio/
+
+# Local editor and OS files
+.vscode/
+.idea/
 .DS_Store
+Thumbs.db
